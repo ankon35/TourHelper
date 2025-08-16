@@ -16,7 +16,7 @@ genai.configure(api_key=gemini_api_key)
 historical_prompt = """
 You are an expert AI that will be analyzing historical landmarks.
 Provide a detailed analysis in a clear, well-structured, and readable format. Do not use a preamble or any Markdown. Do not repeat information. Use 1, 2, 3, for better readable where needed. use proper spacing and line breaks.
-
+The given photo is from Bangladesh.
 Provide the name of the landmark.
 Provide the location, year, materials, and architectural style.
 Historical Overview: Describe the key events, notable figures, wars, or battles associated with the landmark.
@@ -75,7 +75,7 @@ def process_landmark(image_path):
 if __name__ == "__main__":
     # Ensure you have a test image in the same directory.
     # For this example, replace "download.webp" with your image file name.
-    image_path = "img.jpg"
+    image_path = "img1.jpg"
     if not os.path.exists(image_path):
         print(f"Error: The file '{image_path}' does not exist.")
     else:
