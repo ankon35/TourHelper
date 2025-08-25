@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage
 import base64
-from geo import get_location_from_coords  # Importing the geolocation function from geo.py
+from geo import get_location_from_coords
 
 # Load environment variables
 load_dotenv()
@@ -19,43 +19,74 @@ def get_base64_encoded_image(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
+# Language-specific templates for headings
+HEADINGS_TRANSLATION = {
+    "English": {
+        "location": "Location", "year_completed": "Year Completed", "materials": "Materials",
+        "architectural_style": "Architectural Style", "historical_overview": "Historical Overview",
+        "cultural_impact": "Cultural Impact", "famous_for": "Famous For", "key_features": "Key Features",
+        "primary_function": "Primary Function", "overview_and_significance": "Overview & Significance",
+        "visitor_experience": "Visitor Experience", "known_for": "Known For"
+    },
+    "Chinese": {
+        "location": "位置", "year_completed": "建成年份", "materials": "材料", "architectural_style": "建筑风格",
+        "historical_overview": "历史概述", "cultural_impact": "文化影响", "famous_for": "著名原因",
+        "key_features": "主要特色", "primary_function": "主要功能", "overview_and_significance": "概述与意义",
+        "visitor_experience": "游客体验", "known_for": "著名原因"
+    },
+    "Traditional Chinese": {
+        "location": "位置", "year_completed": "建成年份", "materials": "材料", "architectural_style": "建築風格",
+        "historical_overview": "歷史概述", "cultural_impact": "文化影響", "famous_for": "著名原因",
+        "key_features": "主要特色", "primary_function": "主要功能", "overview_and_significance": "概述與意義",
+        "visitor_experience": "遊客體驗", "known_for": "著名原因"
+    }
+}
+
+# Function to fetch language prompt
+def get_language_prompt(language):
+    """Returns the appropriate prompt based on language."""
+    language_prompts = {
+        "English": "Please respond in English.",
+        "Chinese": "请用中文回答。",
+        "Traditional Chinese": "請用繁體中文回答。"
+    }
+    return language_prompts.get(language, None)
+
 # Function to process the landmark using LangChain
-def process_landmark(image_path, latitude, longitude, temperature=0.3):
+def process_landmark(image_path, latitude, longitude, language="English", temperature=0.3):
     """
     Analyzes a landmark image using LangChain and the Gemini API.
     Additionally, fetches the address using latitude and longitude and dynamically adds it to the prompt.
-
-    Args:
-        image_path (str): The file path to the image.
-        latitude (float): Latitude of the location.
-        longitude (float): Longitude of the location.
-        temperature (float): The sampling temperature for the model.
-
-    Returns:
-        str: The structured response from the LLM.
     """
     try:
         # Get the location address using latitude and longitude
         address = get_location_from_coords(latitude, longitude)
-        # print(address)  # Print the address for debugging
-
-        # Check if the address was found
-        if address == "Location not found" or address.startswith("Geocoding error"):
+        if address in ["Location not found", "Geocoding error"]:
             print(f"Failed to fetch address. {address}")
             return None
 
-        # Check if the image file exists
+        # Validate image file existence
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Error: The file '{image_path}' does not exist.")
 
         # Encode the image to a Base64 string
         base64_image = get_base64_encoded_image(image_path)
-        
-        # Construct the data URI for the Base64 image
         image_data_uri = f"data:image/jpeg;base64,{base64_image}"
 
-        # Dynamic prompt with the address inserted
+        # Validate language
+        headings = HEADINGS_TRANSLATION.get(language)
+        if not headings:
+            raise ValueError(f"Unsupported language: {language}")
+
+        # Fetch language-specific prompt
+        language_prompt = get_language_prompt(language)
+        if not language_prompt:
+            raise ValueError(f"Unsupported language: {language}")
+
+        # Construct the dynamic prompt
         unified_prompt = f"""
+{language_prompt}
+
 Given image is from {address}, a popular tourist destination.
 
 You are an expert travel guide and architectural analyst. Your task is to analyze the provided image and generate a detailed, engaging, and factually accurate report about the prominent place or structure shown.
@@ -67,24 +98,23 @@ First, analyze the image to determine if the subject is a Historical Landmark (e
 Based on your classification, output the report using only one of the two exact templates below.
 
 TEMPLATE A: For a Historical Landmark
-[Full Official Landmark Name]
+[{headings["location"]}] [Full Official Landmark Name]
 
-Location: [City, Country]
+[{headings["location"]}]: [City, Country]
 
-Year Completed: [Year or Era] (Omit if not known or not applicable)
+[{headings["year_completed"]}]: [Year or Era] (Omit if not known or not applicable)
 
-Materials: [Primary construction materials] (Omit if not discernible)
+[{headings["materials"]}]: [Primary construction materials] (Omit if not discernible)
 
-Architectural Style: [Predominant architectural style] (Omit if not classified)
+[{headings["architectural_style"]}]: [Predominant architectural style] (Omit if not classified)
 
-Historical Overview:
+[{headings["historical_overview"]}]:
 [A concise paragraph detailing its origin, key historical events, and significant figures involved (e.g., architects, rulers). Focus on its historical narrative.]
 
-Cultural Impact:
+[{headings["cultural_impact"]}]:
 [A single paragraph explaining its symbolic meaning, its influence on national/regional identity, and its role in culture, arts, or collective memory.]
 
-Famous For:
-
+[{headings["famous_for"]}]:
 [1. Primary reason for global fame]
 
 [2. Secondary distinct reason]
@@ -92,24 +122,23 @@ Famous For:
 [3. Tertiary distinct reason]
 
 TEMPLATE B: For a General Place of Interest
-[Full Official Name of the Place/Structure]
+[{headings["location"]}] [Full Official Name of the Place/Structure]
 
-Location: [City, Country]
+[{headings["location"]}]: [City, Country]
 
-Established: [Year] (Omit if not known)
+[{headings["year_completed"]}]: [Year] (Omit if not known)
 
-Key Features: [Notable materials, engineering marvels, or design elements] (Omit if not discernible)
+[{headings["key_features"]}]: [Notable materials, engineering marvels, or design elements] (Omit if not discernible)
 
-Primary Function: [E.g., Observation Tower, Transportation Hub, Commercial Center, Public Park] (Omit if not applicable)
+[{headings["primary_function"]}]: [E.g., Observation Tower, Transportation Hub, Commercial Center, Public Park] (Omit if not applicable)
 
-Overview & Significance:
+[{headings["overview_and_significance"]}]:
 [A concise paragraph describing what it is, its primary purpose, and why it is significant to the city or field (e.g., engineering, urban planning, commerce).]
 
-Visitor Experience:
+[{headings["visitor_experience"]}]:
 [A single paragraph highlighting what visitors can see and do there, the atmosphere, and any unique experiential aspects.]
 
-Known For:
-
+[{headings["known_for"]}]:
 [1. Primary claim to fame]
 
 [2. Secondary distinct feature or fact]
@@ -125,32 +154,26 @@ Conciseness: Use clear, efficient, and engaging language. Avoid fluff and redund
 Deduction: Base your analysis on visual cues from the image and your encyclopedic knowledge. Omit any numbered line (e.g., Year Completed, Materials) if the information cannot be reasonably inferred or is not applicable.
 
 Structure: Maintain the exact spacing, bolding, and section ordering as shown in the chosen template. Begin the response immediately with the landmark/place name.
-
-
 """
 
-        # Initialize the ChatGoogleGenerativeAI model
+        # Initialize the LangChain AI model
         llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
-            temperature= 0.3,
+            temperature=0,
             google_api_key=GEMINI_API_KEY
         )
 
-        # Create a HumanMessage with both text and the Base64 image URI
+        # Create the message with text and image data URI
         message = HumanMessage(
             content=[
                 {"type": "text", "text": unified_prompt},
-                {"type": "image_url", "image_url": image_data_uri},
+                {"type": "image_url", "image_url": image_data_uri}
             ]
         )
 
-        # Invoke the model with the multimodal message
+        # Invoke the model and return the result
         response = llm.invoke([message])
-        
-        # The response is a BaseMessage, so we access its content attribute
-        result = response.content
-
-        return result
+        return response.content
 
     except Exception as e:
         print(f"Failed to process landmark: {str(e)}")
@@ -159,11 +182,18 @@ Structure: Maintain the exact spacing, bolding, and section ordering as shown in
 # Example usage
 if __name__ == "__main__":
     image_path = "images/bcd.jpg"  # Replace with your image path
-    latitude =  24.7460 # Replace with actual latitude
-    longitude = 90.4179 # Replace with actual longitude
+    latitude = 24.7460  # Replace with actual latitude
+    longitude = 90.4179  # Replace with actual longitude
+    language = "Traditional Chinese"  # Example language selection
     
-    result = process_landmark(image_path, latitude, longitude, temperature=0.3)
+    result = process_landmark(image_path, latitude, longitude, language=language, temperature=0)
     
     if result:
         print("\n--- Final Result ---")
         print(result)
+
+
+
+
+
+
