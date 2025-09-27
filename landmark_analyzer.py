@@ -481,19 +481,19 @@ if __name__ == "__main__":
     # Coordinate configuration - Set to None if you don't have coordinates
     latitude = "24.7460" 
     longitude = "90.4179"  
-
+    language = "English"  # Example language selection
 
     
     # Check if coordinates are null/None and handle accordingly
     if latitude is not None and longitude is not None:
         # Coordinates are available - use them for analysis
-        analyze_landmark(image_path, latitude, longitude)
+        analyze_landmark(image_path, latitude, longitude, language)
     else:
         # Coordinates are null/None - AI identifies landmark visually
 
         
 
-        analyze_landmark(image_path, None, None)
+        analyze_landmark(image_path, None, None, language)
         
 
 
