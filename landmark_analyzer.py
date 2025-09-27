@@ -1,4 +1,3 @@
-
 # ----------------------------------------------------------------------------------------------------
 # --------------------------------------- OPTIMIZED OPENAI VERSION WITH TIMING ---------------------------------------
 # ----------------------------------------------------------------------------------------------------
@@ -141,7 +140,7 @@ def get_llm_instance(temperature=0.3):
         )
     return _llm_instance
 
-def get_optimized_base64_image(image_path, max_size=(1024, 1024), quality=85, verbose=True):
+def get_optimized_base64_image(image_path, max_size=(1024, 1024), quality=85, verbose=False):
     """
     Encodes and compresses image to Base64 string for faster upload.
     Reduces image size while maintaining quality for landmark recognition.
@@ -222,15 +221,32 @@ def get_language_prompt(language):
     }
     return language_prompts.get(language)
 
-# Streamlined prompt generation
-def build_prompt(address, language, headings):
-    """Build the analysis prompt more efficiently."""
+# Enhanced prompt generation with optional location context
+def build_prompt(address, language, headings, has_location=True):
+    """Build the analysis prompt with optional location context."""
     lang_prompt = get_language_prompt(language)
     
-    # Shortened, more focused prompt for faster processing
+    # Base instruction based on whether location is provided
+    if has_location and address:
+        location_context = f"Analyze this landmark image from {address}."
+        location_instruction = "Use the provided location context to enhance your analysis."
+    else:
+        location_context = "Analyze this landmark image."
+        location_instruction = "Identify the landmark and its location based on visual features, architectural style, and any visible text or distinctive elements."
+    
+    # Enhanced prompt for better landmark identification
     return f"""{lang_prompt}
 
-Analyze this landmark image from {address}. Classify as Historical Landmark or General Place and use the appropriate template:
+{location_context} {location_instruction}
+
+First, carefully examine the image to identify:
+- Distinctive architectural features
+- Cultural or historical markers
+- Any visible text, signs, or inscriptions
+- Surrounding environment and context
+- Architectural style and period
+
+Then classify as Historical Landmark or General Place and use the appropriate template:
 
 HISTORICAL LANDMARK TEMPLATE:
 **[Name]**
@@ -249,11 +265,17 @@ GENERAL PLACE TEMPLATE:
 {headings["visitor_experience"]}: [2-3 sentences]
 {headings["known_for"]}: [3 key points]
 
-Be concise. Omit unknown details."""
+Instructions:
+- Be confident in your identification based on visual evidence
+- If you can identify the landmark, provide comprehensive details
+- If the landmark is not immediately recognizable, describe what you can observe and provide general information about the architectural style or type of structure
+- Be concise but informative
+- Only omit details that are genuinely unknown"""
 
-def process_landmark_with_timing(image_path, latitude, longitude, language="English", temperature=0.3, verbose=True):
+def process_landmark_with_timing(image_path, latitude=None, longitude=None, language="English", temperature=0.3, verbose=False):
     """
-    Optimized landmark analysis with comprehensive timing and performance tracking.
+    Enhanced landmark analysis with optional coordinates and comprehensive timing.
+    If coordinates are not provided, the AI will identify the landmark using its knowledge.
     Returns: (result, metrics_dict)
     """
     # Initialize performance tracker
@@ -263,7 +285,10 @@ def process_landmark_with_timing(image_path, latitude, longitude, language="Engl
     try:
         if verbose:
             print(f"\n🏛️  Processing landmark: {os.path.basename(image_path)}")
-            print(f"📍 Coordinates: ({latitude}, {longitude})")
+            if latitude is not None and longitude is not None:
+                print(f"📍 Coordinates: ({latitude}, {longitude})")
+            else:
+                print(f"📍 No coordinates provided - AI will identify landmark")
             print(f"🌐 Language: {language}")
         
         # Step 1: Validate inputs
@@ -277,15 +302,27 @@ def process_landmark_with_timing(image_path, latitude, longitude, language="Engl
         
         tracker.add_metric("Input Validation", validation_timer.get_duration())
 
-        # Step 2: Geocoding
-        with Timer("Geocoding", verbose) as geo_timer:
-            address = get_location_from_coords(latitude, longitude)
-            if address in ["Location not found", "Geocoding error"]:
-                if verbose:
-                    print(f"⚠️  Warning: Could not fetch address - {address}")
-                address = f"coordinates {latitude}, {longitude}"  # Fallback
+        # Step 2: Geocoding (only if coordinates are provided)
+        address = None
+        has_location = False
         
-        tracker.add_metric("Geocoding", geo_timer.get_duration())
+        if latitude is not None and longitude is not None:
+            with Timer("Geocoding", verbose) as geo_timer:
+                address = get_location_from_coords(latitude, longitude)
+                if address not in ["Location not found", "Geocoding error"]:
+                    has_location = True
+                else:
+                    if verbose:
+                        print(f"⚠️  Warning: Could not fetch address - {address}")
+                    address = f"coordinates {latitude}, {longitude}"  # Fallback
+                    has_location = True
+            
+            tracker.add_metric("Geocoding", geo_timer.get_duration())
+        else:
+            # Skip geocoding when no coordinates provided
+            if verbose:
+                print("⏭️  Skipping geocoding - no coordinates provided")
+            tracker.add_metric("Geocoding", 0.0)
 
         # Step 3: Image processing
         with Timer("Image Processing", verbose) as img_timer:
@@ -295,7 +332,7 @@ def process_landmark_with_timing(image_path, latitude, longitude, language="Engl
         
         # Step 4: Prompt building
         with Timer("Prompt Building", verbose) as prompt_timer:
-            prompt = build_prompt(address, language, headings)
+            prompt = build_prompt(address, language, headings, has_location)
         
         tracker.add_metric("Prompt Building", prompt_timer.get_duration())
 
@@ -329,10 +366,10 @@ def process_landmark_with_timing(image_path, latitude, longitude, language="Engl
             tracker.print_summary(show_details=False)
         return None, tracker.metrics
 
-# Original function signature for backward compatibility
-def process_landmark(image_path, latitude, longitude, language="English", temperature=0.3):
+# Updated backward compatibility function
+def process_landmark(image_path, latitude=None, longitude=None, language="English", temperature=0.3):
     """
-    Original function signature - returns only the result for backward compatibility.
+    Original function signature with optional coordinates - returns only the result for backward compatibility.
     """
     try:
         result, _ = process_landmark_with_timing(
@@ -343,11 +380,12 @@ def process_landmark(image_path, latitude, longitude, language="English", temper
         print(f"Error processing landmark: {str(e)}")
         return None
 
-# Batch processing function for multiple landmarks
-def process_landmarks_batch(landmark_data_list, language="English", temperature=0.3, verbose=True):
+# Enhanced batch processing function
+def process_landmarks_batch(landmark_data_list, language="English", temperature=0.3, verbose=False):
     """
     Process multiple landmarks efficiently with comprehensive timing.
-    landmark_data_list: List of tuples (image_path, latitude, longitude)
+    landmark_data_list: List of tuples (image_path,) or (image_path, latitude, longitude)
+    Supports mixed batches with some having coordinates and others not.
     """
     batch_start_time = time.perf_counter()
     results = []
@@ -360,9 +398,23 @@ def process_landmarks_batch(landmark_data_list, language="English", temperature=
     with Timer("Batch Model Initialization", verbose) as init_timer:
         llm = get_llm_instance(temperature)
     
-    for i, (image_path, lat, lng) in enumerate(landmark_data_list, 1):
+    for i, landmark_data in enumerate(landmark_data_list, 1):
         if verbose:
             print(f"\n{'='*20} LANDMARK {i}/{len(landmark_data_list)} {'='*20}")
+        
+        # Handle different tuple lengths (with or without coordinates)
+        if len(landmark_data) == 1:
+            # Only image path provided
+            image_path = landmark_data[0]
+            lat, lng = None, None
+        elif len(landmark_data) == 3:
+            # Image path with coordinates
+            image_path, lat, lng = landmark_data
+        else:
+            if verbose:
+                print(f"⚠️  Invalid landmark data format for item {i}: {landmark_data}")
+            results.append(None)
+            continue
         
         result, metrics = process_landmark_with_timing(image_path, lat, lng, language, temperature, verbose)
         results.append(result)
@@ -399,63 +451,50 @@ def time_operation(func, *args, operation_name=None, **kwargs):
         print(f"❌ {name} failed after {duration:.3f}s: {e}")
         return None, duration
 
-if __name__ == "__main__":
-    # Example usage with comprehensive timing
-    print("🏛️  LANDMARK PROCESSING WITH PERFORMANCE TRACKING")
-    print("="*60)
-    
-    # Configuration
-    image_path = "images/img.jpg"  # Replace with your image path
-    latitude = 21.8182
-    longitude = 90.1398
-    language = "English"
-    
-    print(f"📝 Configuration:")
-    print(f"   Image: {image_path}")
-    print(f"   Coordinates: ({latitude}, {longitude})")
-    print(f"   Language: {language}")
-    
-    # Method 1: With detailed timing (recommended)
-    print(f"\n🔄 Processing with detailed timing...")
+def analyze_landmark(image_path, latitude=None, longitude=None, language="English", temperature=0.3):
+    """
+    Simple function that prints only the analysis result.
+    - If coordinates provided: prints analysis with coordinates
+    - If no coordinates: prints analysis without coordinates  
+    """
     try:
-        result, metrics = process_landmark_with_timing(
+        result, _ = process_landmark_with_timing(
             image_path, latitude, longitude, 
-            language=language, temperature=0, verbose=True
+            language=language, temperature=temperature, verbose=False
         )
         
         if result:
-            print("\n📝 ANALYSIS RESULT:")
-            print("-" * 40)
             print(result)
         else:
-            print("❌ Failed to process landmark.")
+            print("Failed to analyze landmark.")
             
     except Exception as e:
-        print(f"❌ Error with timing version: {e}")
-        
-        # Method 2: Fallback to simple version
-        print(f"\n🔄 Trying simple version...")
-        result = process_landmark(
-            image_path, latitude, longitude, 
-            language=language, temperature=0
-        )
-        
-        if result:
-            print("\n📝 ANALYSIS RESULT (Simple Mode):")
-            print("-" * 40)
-            print(result)
-        else:
-            print("❌ Both methods failed.")
+        print(f"Error: {e}")
+
+
+
+if __name__ == "__main__":
+    # Simple usage example
+    image_path = "images/bcd.jpg"  # Replace with your image path
     
-    # Performance comparison example
-    print(f"\n⚡ Available functions:")
-    print(f"   1. process_landmark() - Simple version (backward compatible)")
-    print(f"   2. process_landmark_with_timing() - Full timing version")
-    print(f"   3. process_landmarks_batch() - Batch processing with timing")
-    print(f"   4. time_operation() - Time any custom function")
+    
+    # Coordinate configuration - Set to None if you don't have coordinates
+    latitude = "24.7460" 
+    longitude = "90.4179"  
 
 
+    
+    # Check if coordinates are null/None and handle accordingly
+    if latitude is not None and longitude is not None:
+        # Coordinates are available - use them for analysis
+        analyze_landmark(image_path, latitude, longitude)
+    else:
+        # Coordinates are null/None - AI identifies landmark visually
 
+        
+
+        analyze_landmark(image_path, None, None)
+        
 
 
 
